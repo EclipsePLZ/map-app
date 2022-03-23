@@ -1,18 +1,21 @@
 import React, {useState, useContext} from 'react';
-import { StyleSheet, Text, View, Button, Dimensions} from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { StyleSheet, Text, View, Button, Dimensions, Image, TouchableOpacity} from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import MapView, { Marker } from 'react-native-maps';
 
-var counter = 1;
-const initialMarkerCoords = {0: {
-  latitude: 58.006948,
-  longitude: 56.238385,
-  },
-1: {
-  latitude: 58.056948,
-  longitude: 56.248385,
-  }
+var counter = -1;
+const initialMarkerCoords = {
+// 0: {
+//   latitude: 58.006948,
+//   longitude: 56.238385,
+//   },
+// 1: {
+//   latitude: 58.056948,
+//   longitude: 56.248385,
+//   }
 }
 
 
@@ -27,6 +30,7 @@ function HomeScreen({ navigation }) {
 
   const addMarker = (e) => {
     let newMarker = {
+      imageUris: [],
       ...e.nativeEvent.coordinate
     }
     counter++;
@@ -35,9 +39,13 @@ function HomeScreen({ navigation }) {
   }
 
   const markerList = Object.values(markerCoords).map((x,i)=> <Marker key={i} coordinate={x} title="Title1" onPress={e=>{
-    navigation.navigate('Details')
+    e.stopPropagation();
+    navigation.navigate('Details',{
+    markerTarget: x,
+    })
   }
   }></Marker>)
+  console.log(markerCoords);
   return (
     <View style={styles.container}>
       <MapView style={styles.map} initialRegion={startRegion} onPress={addMarker}>
@@ -49,10 +57,46 @@ function HomeScreen({ navigation }) {
 
 function DetailsScreen({ route, navigation }) {
   const [markerCoords,setMarkerCoords] = useContext(MyContext);
+  const {markerTarget} = route.params;
+
+  let openImagePicker = async() => {
+    let permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permissionResult.granted === false){
+      alert("Требуется доступ к фотогалерее!");
+      return;
+    }
+
+    let pickerResult = await ImagePicker.launchImageLibraryAsync();
+    if (pickerResult.cancelled === true){
+      return;
+    }
+
+    let res={};
+    Object.values(markerCoords).map((x,i)=>{
+      if (x===markerTarget){
+        let images = [...x.imageUris, pickerResult.uri];
+        let newMarker = {
+          imageUris: images,
+          latitude: markerTarget.latitude,
+          longitude: markerTarget.longitude
+        }
+        res = {...res, [i]:newMarker};
+      }
+      else{
+        res = {...res, [i]:x}
+      }
+    });
+    setMarkerCoords(res);
+
+  }
 
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Text>Details Screen {JSON.stringify(markerCoords[0])}</Text>
+    <View style={styles.container}>
+      <TouchableOpacity onPress={openImagePicker} style={styles.button}>
+        <Text style={styles.buttonText}>Загрузить фото</Text>
+      </TouchableOpacity>
+      <StatusBar style="auto"/>
     </View>
   );
 }
@@ -83,5 +127,19 @@ const styles = StyleSheet.create({
   map: {
     width: Dimensions.get('window').width,
     height: Dimensions.get('window').height,
+  },
+  button:{
+    backgroundColor:"blue",
+    padding: 20,
+    borderRadius: 5,
+  },
+  buttonText:{
+    fontSize: 20,
+    color: '#fff',
+  },
+  instructions:{
+    color: '#888',
+    fontSize: 18,
+    marginHorizontal: 15,
   },
 });
