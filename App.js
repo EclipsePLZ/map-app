@@ -5,18 +5,23 @@ import { NavigationContainer } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import MapView, { Marker } from 'react-native-maps';
+import * as SQLite from 'expo-sqlite';
+import { useEffect } from 'react/cjs/react.production.min';
 
 var counter = -1;
-const initialMarkerCoords = {
-// 0: {
-//   latitude: 58.006948,
-//   longitude: 56.238385,
-//   },
-// 1: {
-//   latitude: 58.056948,
-//   longitude: 56.248385,
-//   }
+
+function openDatabase(){
+  const db = SQLite.openDatabase("test1.db");
+  db.transaction((tx) => {
+    tx.executeSql(
+      "create table if not exists markers (id integer primary key not null, latitude real not null, longitude real not null, images text);"
+    );
+  });
+
+  return db;
 }
+const db = openDatabase();
+
 
 
 function HomeScreen({ navigation }) {
@@ -26,6 +31,7 @@ function HomeScreen({ navigation }) {
     latitudeDelta: 0.0922,
     longitudeDelta: 0.0421,
   }
+
   const [markerCoords,setMarkerCoords] = useContext(MyContext);
 
   const addMarker = (e) => {
@@ -35,6 +41,13 @@ function HomeScreen({ navigation }) {
     }
     counter++;
     let res = {...markerCoords, [counter]:newMarker};
+    db.transaction(
+      (tx) => {
+        tx.executeSql("insert into markers (id, latitude, longitude, images) values (?, ?, ?, ?)", [counter, newMarker.latitude, newMarker.longitude, ""]);
+        tx.executeSql("select * from markers", [], (_, {rows}) => console.log(JSON.stringify(rows)));
+      }
+    );
+    //console.log(db);
     setMarkerCoords(res)
   }
 
@@ -81,10 +94,16 @@ function DetailsScreen({ route, navigation }) {
           latitude: marker.latitude,
           longitude: marker.longitude
         }
+        db.transaction(
+          (tx) => {
+            tx.executeSql("update markers set images = ? where id = ?", [images, i]);
+            tx.executeSql("select * from markers", [], (_, {rows}) => console.log(JSON.stringify(rows)));
+          }
+        );
         res = {...res, [i]:newMarker};
       }
       else{
-        res = {...res, [i]:x}
+        res = {...res, [i]:x};
       }
     });
     setMarkerCoords(res);
@@ -106,8 +125,31 @@ function DetailsScreen({ route, navigation }) {
 
 const Stack = createNativeStackNavigator();
 const MyContext = React.createContext();
+
 export default function App() {
+  const initialMarkerCoords = () => {
+    let res = {};
+    db.transaction(
+      (tx) => {
+        tx.executeSql("select * from markers", [], (_, {rows: {_array} }) => {
+          _array.map((x,i) => {
+            let marker = {
+              imageUris: x.images,
+              latitude: x.latitude,
+              longitude: x.longitude
+            }
+            res = {...res, [i]:marker};
+            counter++;
+          });
+          setState(res);
+        });
+      }
+    );
+    return res;
+  }
+
   const [state, setState] = useState(initialMarkerCoords);
+  
   return (
     <MyContext.Provider value={[state, setState]}>
       <NavigationContainer>
@@ -119,6 +161,7 @@ export default function App() {
     </MyContext.Provider>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
