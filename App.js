@@ -6,12 +6,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import MapView, { Marker } from 'react-native-maps';
 import * as SQLite from 'expo-sqlite';
-import { useEffect } from 'react/cjs/react.production.min';
 
 var counter = -1;
 
 function openDatabase(){
-  const db = SQLite.openDatabase("test1.db");
+  const db = SQLite.openDatabase("test2.db");
   db.transaction((tx) => {
     tx.executeSql(
       "create table if not exists markers (id integer primary key not null, latitude real not null, longitude real not null, images text);"
@@ -94,10 +93,14 @@ function DetailsScreen({ route, navigation }) {
           latitude: marker.latitude,
           longitude: marker.longitude
         }
+        let imagesText = "";
+        images.map((x, i) => {imagesText+=x+",,";});
+        imagesText = imagesText.slice(0,-2);
+        console.log(imagesText);
         db.transaction(
           (tx) => {
-            tx.executeSql("update markers set images = ? where id = ?", [images, i]);
-            tx.executeSql("select * from markers", [], (_, {rows}) => console.log(JSON.stringify(rows)));
+            tx.executeSql("update markers set images = ? where id = ?", [imagesText, i]);
+            //tx.executeSql("select * from markers", [], (_, {rows}) => console.log(JSON.stringify(rows)));
           }
         );
         res = {...res, [i]:newMarker};
@@ -133,8 +136,9 @@ export default function App() {
       (tx) => {
         tx.executeSql("select * from markers", [], (_, {rows: {_array} }) => {
           _array.map((x,i) => {
+            let imagesDB = x.images.split(",,");
             let marker = {
-              imageUris: x.images,
+              imageUris: imagesDB,
               latitude: x.latitude,
               longitude: x.longitude
             }
