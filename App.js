@@ -1,4 +1,4 @@
-import React, {useState, useContext} from 'react';
+import React, {useState, useContext, useEffect} from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, ScrollView, View, Button, Dimensions, Image, TouchableOpacity} from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -6,11 +6,18 @@ import * as ImagePicker from 'expo-image-picker';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import MapView, { Marker } from 'react-native-maps';
 import * as SQLite from 'expo-sqlite';
+import * as Location from "expo-location";
+import * as TaskManager from "expo-task-manager";
+import haversine from 'haversine';
+import * as Notifications from 'expo-notifications';
 
 var counter = -1;
+let foregroundSubscription = null;
+const alertDistance = 100;
+
 
 function openDatabase(){
-  const db = SQLite.openDatabase("test2.db");
+  const db = SQLite.openDatabase("test8.db");
   db.transaction((tx) => {
     tx.executeSql(
       "create table if not exists markers (id integer primary key not null, latitude real not null, longitude real not null, images text);"
@@ -22,6 +29,19 @@ function openDatabase(){
 const db = openDatabase();
 
 
+function CheckDistance(markerCoords, position){
+  if (position!=null && markerCoords!={}){
+    Object.values(markerCoords).map((x)=>{
+      const mCoords = {
+        latitude:x.latitude,
+        longitude:x.longitude
+      }
+      if (haversine(mCoords, position,{unit:'meter'})<=alertDistance){
+        console.log("alert!!");
+      }
+    });
+  }
+}
 
 function HomeScreen({ navigation }) {
   const startRegion = {
@@ -31,7 +51,8 @@ function HomeScreen({ navigation }) {
     longitudeDelta: 0.0421,
   }
 
-  const [markerCoords,setMarkerCoords] = useContext(MyContext);
+  const [markerCoords,setMarkerCoords,position] = useContext(MyContext);
+  CheckDistance(markerCoords, position);
 
   const addMarker = (e) => {
     let newMarker = {
@@ -46,8 +67,7 @@ function HomeScreen({ navigation }) {
         tx.executeSql("select * from markers", [], (_, {rows}) => console.log(JSON.stringify(rows)));
       }
     );
-    //console.log(db);
-    setMarkerCoords(res)
+    setMarkerCoords(res);
   }
 
   const markerList = Object.values(markerCoords).map((x,i)=> <Marker key={i} coordinate={x} title="Title1" onPress={e=>{
@@ -100,7 +120,6 @@ function DetailsScreen({ route, navigation }) {
         db.transaction(
           (tx) => {
             tx.executeSql("update markers set images = ? where id = ?", [imagesText, i]);
-            //tx.executeSql("select * from markers", [], (_, {rows}) => console.log(JSON.stringify(rows)));
           }
         );
         res = {...res, [i]:newMarker};
@@ -129,7 +148,9 @@ function DetailsScreen({ route, navigation }) {
 const Stack = createNativeStackNavigator();
 const MyContext = React.createContext();
 
+
 export default function App() {
+
   const initialMarkerCoords = () => {
     let res = {};
     db.transaction(
@@ -145,17 +166,54 @@ export default function App() {
             res = {...res, [i]:marker};
             counter++;
           });
-          setState(res);
+          setMarkers(res);
         });
       }
     );
     return res;
   }
 
-  const [state, setState] = useState(initialMarkerCoords);
-  
+  const [markers, setMarkers] = useState(initialMarkerCoords);
+
+  useEffect(()=>{
+    const requestPermissions = async() => {
+      const foreground = await Location.requestForegroundPermissionsAsync();
+    }
+    requestPermissions()
+  }, []);
+
+  const [position, setPosition] = useState(null);
+
+  const startForegroundUpdate = async() =>{
+    const {granted} = await Location.getForegroundPermissionsAsync();
+    if (!granted){
+      console.log("location tracking denied");
+      return;
+    }
+    const haversine = require('haversine');
+    foregroundSubscription?.remove();
+    foregroundSubscription = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.BestForNavigation,
+        distanceInterval:3,
+      },
+      location => {
+        setPosition(location.coords);
+      }
+    );
+  }
+
+  const stopForegroundUpdate = () => {
+    foregroundSubscription?.remove();
+    setPosition(null);
+  }
+
+  useEffect(()=>{
+    startForegroundUpdate();
+  },[]);
+
   return (
-    <MyContext.Provider value={[state, setState]}>
+    <MyContext.Provider  value={[markers, setMarkers, position]}>
       <NavigationContainer>
         <Stack.Navigator>
           <Stack.Screen name="Home" component={HomeScreen} />
