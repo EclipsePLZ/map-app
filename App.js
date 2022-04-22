@@ -1,4 +1,4 @@
-import React, {useState, useContext, useEffect} from 'react';
+import React, {useState, useContext, useEffect, useRef} from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, ScrollView, View, Button, Dimensions, Image, TouchableOpacity} from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -10,14 +10,24 @@ import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 import haversine from 'haversine';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
+Notifications.setNotificationHandler({
+  handleNotification: async() => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+let visitedMarkers = [];
 var counter = -1;
 let foregroundSubscription = null;
-const alertDistance = 100;
+const alertDistance = 200;
 
 
 function openDatabase(){
-  const db = SQLite.openDatabase("test8.db");
+  const db = SQLite.openDatabase("test13.db");
   db.transaction((tx) => {
     tx.executeSql(
       "create table if not exists markers (id integer primary key not null, latitude real not null, longitude real not null, images text);"
@@ -29,15 +39,27 @@ function openDatabase(){
 const db = openDatabase();
 
 
-function CheckDistance(markerCoords, position){
+async function CheckDistance(markerCoords, position){
   if (position!=null && markerCoords!={}){
-    Object.values(markerCoords).map((x)=>{
-      const mCoords = {
-        latitude:x.latitude,
-        longitude:x.longitude
-      }
-      if (haversine(mCoords, position,{unit:'meter'})<=alertDistance){
-        console.log("alert!!");
+    Object.values(markerCoords).map((x,i)=>{
+      if (!visitedMarkers[i]){
+        const mCoords = {
+          latitude:x.latitude,
+          longitude:x.longitude
+        }
+        const distance = haversine(mCoords, position,{unit:'meter'});
+        if (distance <= alertDistance){
+          Notifications.scheduleNotificationAsync({
+            content: {
+              title: "Вы близки к маркеру "+(i+1),
+              body: "Расстояние до маркера "+(i+1)+" примерно - "+Math.round(distance)+" м.",
+              data: {data: 'goes here'},
+            },
+            trigger: {seconds: 2},
+          });
+          console.log("alert!!");
+        }
+        visitedMarkers[i] = true;
       }
     });
   }
@@ -64,23 +86,30 @@ function HomeScreen({ navigation }) {
     db.transaction(
       (tx) => {
         tx.executeSql("insert into markers (id, latitude, longitude, images) values (?, ?, ?, ?)", [counter, newMarker.latitude, newMarker.longitude, ""]);
-        tx.executeSql("select * from markers", [], (_, {rows}) => console.log(JSON.stringify(rows)));
       }
     );
+    visitedMarkers = [...visitedMarkers, false];
     setMarkerCoords(res);
   }
 
-  const markerList = Object.values(markerCoords).map((x,i)=> <Marker key={i} coordinate={x} title="Title1" onPress={e=>{
+  const markerList = Object.values(markerCoords).map((x,i)=> <Marker key={i} coordinate={x} title={"Marker "+(i+1)} onPress={e=>{
     e.stopPropagation();
     navigation.navigate('Details',{
     markerTarget: i,
     })
   }
   }></Marker>)
+  
+  let myMarker;
+  if (position != null){
+    myMarker = <Marker coordinate={position} titlt="Me" pinColor='blue'/>
+  }
+
   return (
     <View style={styles.container}>
       <MapView style={styles.map} initialRegion={startRegion} onPress={addMarker}>
         {markerList}
+        {myMarker}
       </MapView>
     </View>
   );
@@ -157,6 +186,7 @@ export default function App() {
       (tx) => {
         tx.executeSql("select * from markers", [], (_, {rows: {_array} }) => {
           _array.map((x,i) => {
+            visitedMarkers = [...visitedMarkers, false];
             let imagesDB = x.images.split(",,");
             let marker = {
               imageUris: imagesDB,
@@ -166,6 +196,7 @@ export default function App() {
             res = {...res, [i]:marker};
             counter++;
           });
+          console.log(counter);
           setMarkers(res);
         });
       }
@@ -195,7 +226,7 @@ export default function App() {
     foregroundSubscription = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.BestForNavigation,
-        distanceInterval:3,
+        distanceInterval:2,
       },
       location => {
         setPosition(location.coords);
@@ -212,6 +243,15 @@ export default function App() {
     startForegroundUpdate();
   },[]);
 
+  const [expoPushToken, setExpoPushToken] = useState('');
+  const [notification, setNotification] = useState(false);
+  const notificationListener = useRef();
+  const responseListener = useRef();
+
+  useEffect(() => {
+    registerForPushNotificationsAsync().then(token => setExpoPushToken(token));
+  }, []);
+
   return (
     <MyContext.Provider  value={[markers, setMarkers, position]}>
       <NavigationContainer>
@@ -222,6 +262,27 @@ export default function App() {
       </NavigationContainer>
     </MyContext.Provider>
   );
+}
+
+async function registerForPushNotificationsAsync(){
+  let token;
+  if (Constants.isDevice){
+    const {status: existingStatus} = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted'){
+      const {status} = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted'){
+      alert('Failed to get push token for push notification!');
+      return;
+    }
+    token = (await Notifications.getExpoPushTokenAsync()).data;
+  }
+  else{
+    aler('Must use physical device for Push Notifications');
+  }
+  return token;
 }
 
 
