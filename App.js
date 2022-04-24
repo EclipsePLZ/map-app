@@ -27,7 +27,7 @@ const alertDistance = 200;
 
 
 function openDatabase(){
-  const db = SQLite.openDatabase("test13.db");
+  const db = SQLite.openDatabase("test15.db");
   db.transaction((tx) => {
     tx.executeSql(
       "create table if not exists markers (id integer primary key not null, latitude real not null, longitude real not null, images text);"
